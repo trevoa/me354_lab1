@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from numpy import sin, cos, pi
@@ -24,13 +23,14 @@ g4x = [0.44992, 0.45008]
 ros1 = [0, 45, 90]
 ros2 = [-45, 0, 45]
 
-
+# Finds strain reading for a given angle
 def strain1Rotate(epsilon,th):
     '''Rotate a strain epsilon =[e_x,e_y,gamma_xy] by an angle th given in radians.'''
     T = [cos(th)**2, sin(th)**2, sin(th)*cos(th)]
     return np.dot(T, epsilon)
 
 
+# 3 point beam setup with defined mechanics
 class ThreePointBeam:
 
     def __init__(self, length, base, height, g1x, g2x, g2z, g3x, g4x, load):
@@ -76,11 +76,13 @@ class ThreePointBeam:
         sigma *= 1e-6
         return sigma
 
+    # Shear stress
     def ShearStress(self, x, z):
         S = (self.shearForce(x) / 2 * self.areaMomentOfInertia()) * ((self.h ** 2 / 4) - z ** 2)
         S *= 1e-6
         return S
 
+    # Strain readings for each gauge
     def strainReadings(self, x, z, ros_angles):
         sig = self.axialStress(x, z) * 1e6
         tau = self.ShearStress(x, z) * 1e6
@@ -90,6 +92,7 @@ class ThreePointBeam:
         return epsilon_rosette
 
 
+# 4 point beam setup with defined mechanics
 class FourPointBeam:
 
     def __init__(self, length, base, height, a, g1x, g2x, g2z, g3x, g4x, load):
@@ -114,6 +117,7 @@ class FourPointBeam:
         w = ((self.p * self.a)/(48 * E * self.areaMomentOfInertia())) * ((3 * self.l**2) - (4 * self.a**2))
         return w
 
+    # Shear force for 4-point bending
     def shearForce(self, x):
         if x <= self.a:
             Q = self.p / 2
@@ -123,6 +127,7 @@ class FourPointBeam:
             Q = 0
         return Q
 
+    # Bending moment for 4-point bending
     def bendingMoment(self, x):
         if x <= self.a:
             M = (self.p * x) / 2
@@ -138,11 +143,13 @@ class FourPointBeam:
         sigma *= 1e-6
         return sigma
 
+    # Shear stress
     def ShearStress(self, x, z):
         S = (self.shearForce(x) / 2 * self.areaMomentOfInertia()) * ((self.h ** 2 / 4) - z ** 2)
         S *= 1e-6
         return S
 
+    # Strain readings for each gauge
     def strainReadings(self, x, z, ros_angles):
         sig = self.axialStress(x, z) * 1e6
         tau = self.ShearStress(x, z) * 1e6
@@ -152,15 +159,17 @@ class FourPointBeam:
         return epsilon_rosette
 
 
+# Handle error propagation through min/max approach
 def interval(min, max):
     avg = (min + max) / 2
-    avg = round(avg, 3)
+    #avg = round(avg, 3)
     error = (max - min) / 2
-    error = round(error, 3)
+    #error = round(error, 3)
     value = "{} +/- {}".format(avg, error)
     return value
 
 
+# Returns readings for a given beam
 def RunLab(beam):
     gauges = {'G1': [beam.g1x, -beam.h / 2, ros1],
               'G2': [beam.g2x, beam.g2z - (beam.h / 2), ros1],
@@ -184,92 +193,66 @@ def RunLab(beam):
     return output
 
 
-combination = list(product(l, b, h, g1x, g2x, g2z, g3x, g4x))
+# Collects data for all possible dimension combinations and given load
+def GetData(combos, load, type=''):
+
+    w_list = []
+    G_list = [{} for _ in range(4)]
+
+    i = 0
+
+    for combo in combos:
+        if type == '3-point':
+            beam = ThreePointBeam(*combo, load)
+        elif type == '4-point':
+            beam = FourPointBeam(*combo, load)
+        else:
+            Exception('Define beam type')
+
+        data = RunLab(beam)
+        w = data['Max Deflection']
+        G1 = data['G1']
+        G2 = data['G2']
+        G3 = data['G3']
+        G4 = data['G4']
+        w_list.append(w)
+        G_list[0][i] = G1
+        G_list[1][i] = G2
+        G_list[2][i] = G3
+        G_list[3][i] = G4
+        i += 1
+
+    w_max = max(w_list)
+    w_min = min(w_list)
+    w_result = interval(w_min, w_max)
+    j = 1
+    print("\n\nLoad of {}".format(load))
+    print('\nMax Deflection:{}'.format(w_result))
+    for gauge in G_list:
+        df = pd.DataFrame.from_dict(gauge, orient='index', columns=["Shear Force", "Moment", "Axial Stress",
+                                                                      "Shear Stress", "a", "b", "c"])
+        print("\nG{} Measurements".format(j))
+        for measure in df:
+            top = df[measure].max()
+            bot = df[measure].min()
+            out = interval(bot, top)
+            print("{}: {}".format(measure, out))
+        j += 1
+
+
+# Loads applied in experiment
 loads = [400, 800, 1200, 1600]
 
-print('Three Point Bending Analysis')
+# Create list of possible dimensions due to measurement error
+three_combo = list(product(l, b, h, g1x, g2x, g2z, g3x, g4x))
+four_combo = list(product(l, b, h, a, g1x, g2x, g2z, g3x, g4x))
+
+# Run analysis for 3-point and 4-point beam
+print('Three Point Analysis')
 for load in loads:
-    i = 0
-    G1_list = {}
-    G2_list = {}
-    G3_list = {}
-    G4_list = {}
-    for combo in combination:
-            beam = ThreePointBeam(*combo, load)
-            test = RunLab(beam)
-            print(test)
-            G1 = test['G1']
-            G2 = test['G2']
-            G3 = test['G3']
-            G4 = test['G4']
-            G1_list[i] = G1
-            G2_list[i] = G2
-            G3_list[i] = G3
-            G4_list[i] = G4
-            i += 1
+    GetData(three_combo, load, type="3-point")
 
-    G1_df = pd.DataFrame.from_dict(G1_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                                "a", "b", "c"])
-    G2_df = pd.DataFrame.from_dict(G2_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                              "a", "b", "c"])
-    G3_df = pd.DataFrame.from_dict(G3_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                             "a", "b", "c"])
-    G4_df = pd.DataFrame.from_dict(G4_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",
-                                                                    "a", "b", "c"])
-
-    df_list = [G1_df, G2_df, G3_df, G4_df]
-
-    j = 1
-    print("\n\nLoad of {}".format(load))
-    for df in df_list:
-        print(df)
-        df.to_csv("G{}.csv".format(j))
-        print("\nG{} Measurements".format(j))
-        for measure in df:
-            max = df[measure].max()
-            min = df[measure].min()
-            out = interval(min, max)
-            print("{}: {}".format(measure, out))
-        j += 1
-
-
-
-combination2 = list(product(l, b, h, a, g1x, g2x, g2z, g3x, g4x))
-print("\n\nFour Point Bending Analysis")
+print('Four Point Analysis')
 for load in loads:
-    i = 0
-    G1_list = {}
-    G2_list = {}
-    G3_list = {}
-    G4_list = {}
-    for combo in combination2:
-            beam = FourPointBeam(*combo, load)
-            test = RunLab(beam)
-            G1 = test['G1']
-            G2 = test['G2']
-            G3 = test['G3']
-            G4 = test['G4']
-            G1_list[i] = G1
-            G2_list[i] = G2
-            G3_list[i] = G3
-            G4_list[i] = G4
-            i += 1
-
-    G1_df = pd.DataFrame.from_dict(G1_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                                "a", "b", "c"])
-    G2_df = pd.DataFrame.from_dict(G2_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                              "a", "b", "c"])
-    G3_df = pd.DataFrame.from_dict(G3_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",                                                             "a", "b", "c"])
-    G4_df = pd.DataFrame.from_dict(G4_list, orient='index', columns=["Shear Force", "Moment", "Axial Stress", "Shear Stress",
-                                                                    "a", "b", "c"])
-
-    df_list = [G1_df, G2_df, G3_df, G4_df]
-
-    j = 1
-    print("\n\nLoad of {}".format(load))
-    for df in df_list:
-        df.to_csv("G{}.csv".format(j))
-        print("\nG{} Measurements".format(j))
-        for measure in df:
-            max = df[measure].max()
-            min = df[measure].min()
-            out = interval(min, max)
-            print("{}: {}".format(measure, out))
-        j += 1
-
+    GetData(four_combo, load, type="4-point")
 
