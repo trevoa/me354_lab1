@@ -7,13 +7,13 @@ E = 69000e6  # Elastic Modulus
 v = 0.33     # Poisson's Ratio
 Y = 275e6    # Yield Strength
 
+
 C = np.array([[1/E, -v/E, 0], [-v/E, 1/E, 0], [0, 0, 2*(1+v)/E]])    # Stiffness tensor
 
 # Max and min values for each dimension
 l = [0.69992, 0.70008]
 b = [0.038325, 0.038375]
 h = [0.025715, 0.025765]
-a = [0.2]
 g1x = [0.34992, 0.35008]
 g2x = [0.37492, 0.37508]
 g2z = [0.01265, 0.01285]
@@ -78,9 +78,17 @@ class ThreePointBeam:
 
     # Shear stress
     def ShearStress(self, x, z):
-        S = (self.shearForce(x) / 2 * self.areaMomentOfInertia()) * ((self.h ** 2 / 4) - z ** 2)
+        S = ((6 * self.shearForce(x)) / (self.b * (self.h ** 3))) * (((self.h ** 2) / 4) - z ** 2)
         S *= 1e-6
         return S
+
+    # Gives strain at point [Ex, Ey, gamma]
+    def strain(self, x, z):
+        sig = self.axialStress(x, z) * 1e6
+        tau = self.ShearStress(x, z) * 1e6
+        epsilon = np.dot(C, np.array([sig, 0, tau]))
+        epsilon *= 1e6
+        return epsilon
 
     # Strain readings for each gauge
     def strainReadings(self, x, z, ros_angles):
@@ -92,7 +100,9 @@ class ThreePointBeam:
         return epsilon_rosette
 
 
+
 # 4 point beam setup with defined mechanics
+a = [0.2]
 class FourPointBeam:
 
     def __init__(self, length, base, height, a, g1x, g2x, g2z, g3x, g4x, load):
@@ -143,11 +153,20 @@ class FourPointBeam:
         sigma *= 1e-6
         return sigma
 
-    # Shear stress
+        # Shear stress
+
     def ShearStress(self, x, z):
-        S = (self.shearForce(x) / 2 * self.areaMomentOfInertia()) * ((self.h ** 2 / 4) - z ** 2)
-        S *= 1e-6
+        S = ((6 * self.shearForce(x)) / (self.b * (self.h ** 3))) * (((self.h ** 2) / 4) - z ** 2)
+        #S *= 1e-6
         return S
+
+    # Gives strain at point [Ex, Ey, gamma]
+    def strain(self, x, z):
+        sig = self.axialStress(x, z) * 1e6
+        tau = self.ShearStress(x, z) * 1e6
+        epsilon = np.dot(C, np.array([sig, 0, tau]))
+        epsilon *= 1e6
+        return epsilon
 
     # Strain readings for each gauge
     def strainReadings(self, x, z, ros_angles):
@@ -181,14 +200,16 @@ def RunLab(beam):
         x = gauges[gauge][0]
         z = gauges[gauge][1]
         ros = gauges[gauge][2]
+        strain = list(beam.strain(x, z))
         reading = list(beam.strainReadings(x, z, ros))
         shear = beam.shearForce(x)
         axial_stress = beam.axialStress(x, z)
         shear_stress = beam.ShearStress(x, z)
         moment = beam.bendingMoment(x)
 
-        output[gauge] = {"Shear Force": shear, "Moment": moment, "Axial Stress": axial_stress,
-                         "Shear Stress": shear_stress, "a": reading[0], "b": reading[1], "c": reading[2]}
+        output[gauge] = {"Shear Force": shear, "Moment": moment,  "Axial Stress": axial_stress,
+                         "Shear Stress": shear_stress, "e_x": strain[0], "e_y": strain[1], "gamma": strain[2],
+                         "a": reading[0], "b": reading[1], "c": reading[2]}
 
     return output
 
@@ -230,7 +251,7 @@ def GetData(combos, load, type=''):
     print('\nMax Deflection:{}'.format(w_result))
     for gauge in G_list:
         df = pd.DataFrame.from_dict(gauge, orient='index', columns=["Shear Force", "Moment", "Axial Stress",
-                                                                      "Shear Stress", "a", "b", "c"])
+                                                                    "Shear Stress","e_x", "e_y", "gamma", "a", "b", "c"])
         print("\nG{} Measurements".format(j))
         for measure in df:
             top = df[measure].max()
